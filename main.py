@@ -101,27 +101,44 @@ async def recommend_collaborative(user_id: int, limit: int = 5):
         raise HTTPException(status_code=503, detail="Модель обучается")
         
     try:
-        recs = recommender.get_collaborative_recommendations(user_id, limit)
+        recs = recommender.get_collaborative_recommendations(
+            user_id, ML_MODEL["df"], ML_MODEL["similarity"], limit
+        )
         if not recs:
             return {
-                "_comment_response": "У юзера нет оценок, возвращаем популярные (Cold Start)",
+                "_comment_response": "У юзера нет истории просмотров или релевантных совпадений, возвращаем популярные (Cold Start)",
                 "user_id": user_id,
                 "recommendations": recommender.get_popular_fallback(ML_MODEL["df"], limit),
                 "method": "popular_fallback_cold_start"
             }
         return {
-            "_comment_response": "Персональные рекомендации на основе оценок похожих юзеров",
+            "_comment_response": "Персональные ML рекомендации на основе истории просмотров пользователя (с учетом длительности)",
             "user_id": user_id,
             "recommendations": recs,
-            "method": "collaborative_filtering"
+            "method": "history_based_collaborative_filtering"
         }
-    except AttributeError:
+    except Exception as e:
         return {
-            "_comment_response": "Метод коллаборативной фильтрации еще не реализован в recommender.py",
+            "_comment_response": f"Произошла ошибка (возможно БД не готова): {str(e)}",
             "user_id": user_id,
             "recommendations": recommender.get_popular_fallback(ML_MODEL["df"], limit),
-            "method": "collaborative_not_implemented"
+            "method": "error_fallback"
         }
+
+@app.get("/api/v1/recommend/feed/{user_id}")
+async def get_smart_feed(user_id: int):
+    if ML_MODEL["df"] is None:
+        raise HTTPException(status_code=503, detail="Модель обучается")
+        
+    try:
+        feed = recommender.get_youtube_like_feed(user_id, ML_MODEL["df"], ML_MODEL["similarity"])
+        return {
+            "_comment_response": "Лента рекомендаций в стиле YouTube (Modern Hybrid Feed)",
+            "user_id": user_id,
+            "feed": feed
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/movie/details/{movie_id}")
 async def get_movie_details(movie_id: int, db: Session = Depends(get_db)):
